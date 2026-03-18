@@ -1,0 +1,90 @@
+import React, { useState, useEffect } from 'react'
+import { Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Wind } from 'lucide-react'
+import { weatherApi } from '../../api/client'
+import { useSettingsStore } from '../../store/settingsStore'
+
+const WEATHER_ICON_MAP = {
+  Clear: Sun,
+  Clouds: Cloud,
+  Rain: CloudRain,
+  Drizzle: CloudDrizzle,
+  Thunderstorm: CloudLightning,
+  Snow: CloudSnow,
+  Mist: Wind,
+  Fog: Wind,
+  Haze: Wind,
+}
+
+function WeatherIcon({ main, size = 13 }) {
+  const Icon = WEATHER_ICON_MAP[main] || Cloud
+  return <Icon size={size} strokeWidth={1.8} />
+}
+
+const weatherCache = {}
+
+export default function WeatherWidget({ lat, lng, date, compact = false }) {
+  const [weather, setWeather] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const isFahrenheit = useSettingsStore(s => s.settings.temperature_unit) === 'fahrenheit'
+
+  useEffect(() => {
+    if (!lat || !lng || !date) return
+    const cacheKey = `${lat},${lng},${date}`
+    if (weatherCache[cacheKey] !== undefined) {
+      if (weatherCache[cacheKey] === null) setFailed(true)
+      else setWeather(weatherCache[cacheKey])
+      return
+    }
+    setLoading(true)
+    weatherApi.get(lat, lng, date)
+      .then(data => {
+        if (data.error || data.temp === undefined) {
+          weatherCache[cacheKey] = null
+          setFailed(true)
+        } else {
+          weatherCache[cacheKey] = data
+          setWeather(data)
+        }
+      })
+      .catch(() => { weatherCache[cacheKey] = null; setFailed(true) })
+      .finally(() => setLoading(false))
+  }, [lat, lng, date])
+
+  if (!lat || !lng) return null
+
+  const fontStyle = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif" }
+
+  if (loading) {
+    return (
+      <span style={{ fontSize: 11, color: '#d1d5db', ...fontStyle }}>…</span>
+    )
+  }
+
+  if (failed || !weather) {
+    return (
+      <span style={{ fontSize: 11, color: '#9ca3af', ...fontStyle }}>—</span>
+    )
+  }
+
+  const rawTemp = weather.temp
+  const temp = rawTemp !== undefined ? Math.round(isFahrenheit ? rawTemp * 9/5 + 32 : rawTemp) : null
+  const unit = isFahrenheit ? '°F' : '°C'
+
+  if (compact) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6b7280', ...fontStyle }}>
+        <WeatherIcon main={weather.main} size={12} />
+        {temp !== null && <span>{temp}{unit}</span>}
+      </span>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', background: 'rgba(0,0,0,0.04)', borderRadius: 8, padding: '5px 10px', ...fontStyle }}>
+      <WeatherIcon main={weather.main} size={15} />
+      {temp !== null && <span style={{ fontWeight: 500 }}>{temp}{unit}</span>}
+      {weather.description && <span style={{ fontSize: 11, color: '#9ca3af', textTransform: 'capitalize' }}>{weather.description}</span>}
+    </div>
+  )
+}

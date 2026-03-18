@@ -1,0 +1,193 @@
+import React, { useState, useEffect, useRef } from 'react'
+import Modal from '../shared/Modal'
+import { Calendar, Camera, X } from 'lucide-react'
+import { tripsApi } from '../../api/client'
+import { useToast } from '../shared/Toast'
+import { useTranslation } from '../../i18n'
+import { CustomDatePicker } from '../shared/CustomDateTimePicker'
+
+export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUpdate }) {
+  const isEditing = !!trip
+  const fileRef = useRef(null)
+  const toast = useToast()
+  const { t } = useTranslation()
+
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    start_date: '',
+    end_date: '',
+  })
+  const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [coverPreview, setCoverPreview] = useState(null)
+  const [uploadingCover, setUploadingCover] = useState(false)
+
+  useEffect(() => {
+    if (trip) {
+      setFormData({
+        title: trip.title || '',
+        description: trip.description || '',
+        start_date: trip.start_date || '',
+        end_date: trip.end_date || '',
+      })
+      setCoverPreview(trip.cover_image || null)
+    } else {
+      setFormData({ title: '', description: '', start_date: '', end_date: '' })
+      setCoverPreview(null)
+    }
+    setError('')
+  }, [trip, isOpen])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!formData.title.trim()) { setError(t('dashboard.titleRequired')); return }
+    if (formData.start_date && formData.end_date && new Date(formData.end_date) < new Date(formData.start_date)) {
+      setError(t('dashboard.endDateError')); return
+    }
+    setIsLoading(true)
+    try {
+      await onSave({
+        title: formData.title.trim(),
+        description: formData.description.trim() || null,
+        start_date: formData.start_date || null,
+        end_date: formData.end_date || null,
+      })
+      onClose()
+    } catch (err) {
+      setError(err.message || t('places.saveError'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleCoverChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !trip?.id) return
+    setUploadingCover(true)
+    try {
+      const fd = new FormData()
+      fd.append('cover', file)
+      const data = await tripsApi.uploadCover(trip.id, fd)
+      setCoverPreview(data.cover_image)
+      onCoverUpdate?.(trip.id, data.cover_image)
+      toast.success(t('dashboard.coverSaved'))
+    } catch {
+      toast.error(t('dashboard.coverUploadError'))
+    } finally {
+      setUploadingCover(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleRemoveCover = async () => {
+    if (!trip?.id) return
+    try {
+      await tripsApi.update(trip.id, { cover_image: null })
+      setCoverPreview(null)
+      onCoverUpdate?.(trip.id, null)
+    } catch {
+      toast.error(t('dashboard.coverRemoveError'))
+    }
+  }
+
+  const update = (field, value) => setFormData(prev => ({ ...prev, [field]: value }))
+
+  const inputCls = "w-full px-3 py-2.5 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent text-sm"
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={isEditing ? t('dashboard.editTrip') : t('dashboard.createTrip')}
+      size="md"
+      footer={
+        <div className="flex gap-3 justify-end">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+            {t('common.cancel')}
+          </button>
+          <button onClick={handleSubmit} disabled={isLoading}
+            className="px-4 py-2 text-sm bg-slate-900 hover:bg-slate-700 disabled:bg-slate-400 text-white rounded-lg transition-colors flex items-center gap-2">
+            {isLoading
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{t('common.saving')}</>
+              : isEditing ? t('common.update') : t('dashboard.createTrip')}
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{error}</div>
+        )}
+
+        {/* Cover image — only for existing trips */}
+        {isEditing && (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('dashboard.coverImage')}</label>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleCoverChange} />
+            {coverPreview ? (
+              <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', height: 130 }}>
+                <img src={coverPreview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{ position: 'absolute', bottom: 8, right: 8, display: 'flex', gap: 6 }}>
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploadingCover}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.55)', border: 'none', color: 'white', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
+                    <Camera size={12} /> {uploadingCover ? t('common.uploading') : t('common.change')}
+                  </button>
+                  <button type="button" onClick={handleRemoveCover}
+                    style={{ display: 'flex', alignItems: 'center', padding: '5px 8px', borderRadius: 8, background: 'rgba(0,0,0,0.55)', border: 'none', color: 'white', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploadingCover}
+                style={{ width: '100%', padding: '18px', border: '2px dashed #e5e7eb', borderRadius: 10, background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: '#9ca3af', fontFamily: 'inherit' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e7eb'; e.currentTarget.style.color = '#9ca3af' }}>
+                <Camera size={15} /> {uploadingCover ? t('common.uploading') : t('dashboard.addCoverImage')}
+              </button>
+            )}
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            {t('dashboard.tripTitle')} <span className="text-red-500">*</span>
+          </label>
+          <input type="text" value={formData.title} onChange={e => update('title', e.target.value)}
+            required placeholder={t('dashboard.tripTitlePlaceholder')} className={inputCls} />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('dashboard.tripDescription')}</label>
+          <textarea value={formData.description} onChange={e => update('description', e.target.value)}
+            placeholder={t('dashboard.tripDescriptionPlaceholder')} rows={3}
+            className={`${inputCls} resize-none`} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <Calendar className="inline w-4 h-4 mr-1" />{t('dashboard.startDate')}
+            </label>
+            <CustomDatePicker value={formData.start_date} onChange={v => update('start_date', v)} placeholder="Start" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              <Calendar className="inline w-4 h-4 mr-1" />{t('dashboard.endDate')}
+            </label>
+            <CustomDatePicker value={formData.end_date} onChange={v => update('end_date', v)} placeholder="End" />
+          </div>
+        </div>
+
+        {!formData.start_date && !formData.end_date && (
+          <p className="text-xs text-slate-400 bg-slate-50 rounded-lg p-3">
+            {t('dashboard.noDateHint')}
+          </p>
+        )}
+      </form>
+    </Modal>
+  )
+}

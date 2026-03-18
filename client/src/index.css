@@ -1,0 +1,273 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ort-Zeile Hover: Sortier-Buttons anzeigen */
+.place-row:hover .reorder-btns {
+  opacity: 1 !important;
+}
+
+/* Ladeanimation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Design tokens ─────────────────────────────── */
+:root {
+  --font-system: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-elevated: 0 4px 16px rgba(0,0,0,0.1);
+
+  /* Theme colors */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --bg-elevated: rgba(250,250,250,0.82);
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: rgba(0,0,0,0.03);
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+  --border-primary: #e5e7eb;
+  --border-secondary: #f3f4f6;
+  --border-faint: rgba(0,0,0,0.06);
+  --accent: #111827;
+  --accent-text: #ffffff;
+  --sidebar-bg: rgba(250,250,250,0.82);
+  --sidebar-shadow: 0 4px 32px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06);
+  --tooltip-bg: rgba(255,255,255,0.96);
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-hover: #9ca3af;
+}
+
+.dark {
+  --bg-primary: #121215;
+  --bg-secondary: #1a1a1e;
+  --bg-tertiary: #1c1c21;
+  --bg-elevated: rgba(19,19,22,0.82);
+  --bg-card: #131316;
+  --bg-input: #1c1c21;
+  --bg-hover: rgba(255,255,255,0.06);
+  --text-primary: #f4f4f5;
+  --text-secondary: #d4d4d8;
+  --text-muted: #a1a1aa;
+  --text-faint: #71717a;
+  --border-primary: #27272a;
+  --border-secondary: #1c1c21;
+  --border-faint: rgba(255,255,255,0.07);
+  --accent: #e4e4e7;
+  --accent-text: #09090b;
+  --sidebar-bg: rgba(19,19,22,0.82);
+  --sidebar-shadow: 0 4px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  --tooltip-bg: rgba(19,19,22,0.96);
+  --scrollbar-track: #131316;
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-hover: #52525b;
+}
+
+body {
+  font-family: var(--font-system);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* ── Leaflet z-index ───────────────────────────── */
+.leaflet-container {
+  z-index: 0;
+}
+.leaflet-pane {
+  z-index: 0 !important;
+}
+.leaflet-top, .leaflet-bottom {
+  z-index: 1 !important;
+}
+
+/* ── iOS-style map tooltip ─────────────────────── */
+.leaflet-tooltip.map-tooltip {
+  background: var(--tooltip-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
+  padding: 6px 10px;
+  font-family: var(--font-system);
+  pointer-events: none;
+  color: var(--text-primary);
+}
+.leaflet-tooltip.map-tooltip::before {
+  border-right-color: var(--tooltip-bg);
+}
+.leaflet-tooltip-left.map-tooltip::before {
+  border-left-color: var(--tooltip-bg);
+}
+
+/* Scrollbalken */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* Einheitliche Formular-Inputs */
+.form-input {
+  width: 100%;
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  transition: border-color 0.15s;
+}
+.form-input:focus {
+  border-color: var(--text-faint);
+}
+.form-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* Weiche Übergänge */
+.transition-smooth {
+  transition: all 0.2s ease;
+}
+
+
+
+/* Tagesliste */
+.day-list-item {
+  transition: background-color 0.15s ease;
+}
+
+.day-list-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+.day-list-item.active {
+  background-color: #4f46e5;
+  color: white;
+}
+
+.scroll-container {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* ── Dark-Mode: Tailwind-Klassen ─────────────── */
+.dark .bg-slate-50 { background-color: #131316 !important; }
+.dark .bg-slate-100 { background-color: #1c1c21 !important; }
+.dark .bg-white { background-color: #09090b !important; }
+.dark .bg-gray-50 { background-color: #131316 !important; }
+.dark .bg-gray-100 { background-color: #1c1c21 !important; }
+.dark .text-slate-900, .dark .text-gray-900, .dark .text-slate-800 { color: #f4f4f5 !important; }
+.dark .text-slate-700, .dark .text-gray-700 { color: #d4d4d8 !important; }
+.dark .text-slate-600, .dark .text-gray-600 { color: #a1a1aa !important; }
+.dark .text-slate-500, .dark .text-gray-500 { color: #a1a1aa !important; }
+.dark .text-slate-400, .dark .text-gray-400 { color: #71717a !important; }
+.dark .border-slate-200, .dark .border-gray-200, .dark .border-slate-300 { border-color: #27272a !important; }
+.dark .border-gray-100, .dark .border-slate-100 { border-color: #1c1c21 !important; }
+.dark .hover\:bg-slate-50:hover, .dark .hover\:bg-gray-50:hover { background-color: #1c1c21 !important; }
+.dark .bg-slate-50\/60 { background-color: transparent !important; }
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #27272a !important; }
+.dark .bg-slate-100 { background-color: #27272a !important; }
+.dark .bg-slate-900 { background-color: #e4e4e7 !important; color: #09090b !important; }
+.dark .hover\:bg-slate-700:hover { background-color: #d4d4d8 !important; color: #09090b !important; }
+.dark input, .dark textarea, .dark select {
+  background-color: #1c1c21;
+  color: #f4f4f5;
+  border-color: #27272a;
+}
+.dark input::placeholder, .dark textarea::placeholder { color: #71717a; }
+.dark .bg-emerald-50 { background-color: rgba(16,185,129,0.15) !important; }
+.dark .bg-red-50 { background-color: rgba(239,68,68,0.15) !important; }
+
+/* Ladebildschirm */
+.dark .min-h-screen { background-color: var(--bg-primary) !important; }
+
+/* Modal-Hintergrund */
+.dark .modal-backdrop { background: rgba(0,0,0,0.6); }
+
+/* ── Dark: Fallback für Komponenten die noch nicht auf CSS-Variablen umgestellt sind ── */
+.dark {
+  color-scheme: dark;
+}
+
+/* Scroll-Container */
+.scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db #f1f5f9;
+}
+
+/* Toast-Animationen */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+.toast-enter {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.toast-exit {
+  animation: slide-out-right 0.3s ease-in forwards;
+}
+
+/* Modal-Hintergrund */
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+}
+
+/* Fortschrittsbalken */
+@keyframes progress-fill {
+  from { width: 0; }
+  to { width: var(--progress); }
+}
+
+/* Anmeldeseiten-Gradient */
+.auth-gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* Bildanzeige-Overlay */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

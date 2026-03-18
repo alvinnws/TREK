@@ -1,0 +1,128 @@
+const express = require('express');
+const { db, canAccessTrip } = require('../db/database');
+const { authenticate } = require('../middleware/auth');
+
+const router = express.Router({ mergeParams: true });
+
+function verifyTripOwnership(tripId, userId) {
+  return canAccessTrip(tripId, userId);
+}
+
+// GET /api/trips/:tripId/reservations
+router.get('/', authenticate, (req, res) => {
+  const { tripId } = req.params;
+
+  const trip = verifyTripOwnership(tripId, req.user.id);
+  if (!trip) return res.status(404).json({ error: 'Reise nicht gefunden' });
+
+  const reservations = db.prepare(`
+    SELECT r.*, d.day_number, p.name as place_name
+    FROM reservations r
+    LEFT JOIN days d ON r.day_id = d.id
+    LEFT JOIN places p ON r.place_id = p.id
+    WHERE r.trip_id = ?
+    ORDER BY r.reservation_time ASC, r.created_at ASC
+  `).all(tripId);
+
+  res.json({ reservations });
+});
+
+// POST /api/trips/:tripId/reservations
+router.post('/', authenticate, (req, res) => {
+  const { tripId } = req.params;
+  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, status, type } = req.body;
+
+  const trip = verifyTripOwnership(tripId, req.user.id);
+  if (!trip) return res.status(404).json({ error: 'Reise nicht gefunden' });
+
+  if (!title) return res.status(400).json({ error: 'Titel ist erforderlich' });
+
+  const result = db.prepare(`
+    INSERT INTO reservations (trip_id, day_id, place_id, title, reservation_time, location, confirmation_number, notes, status, type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    tripId,
+    day_id || null,
+    place_id || null,
+    title,
+    reservation_time || null,
+    location || null,
+    confirmation_number || null,
+    notes || null,
+    status || 'pending',
+    type || 'other'
+  );
+
+  const reservation = db.prepare(`
+    SELECT r.*, d.day_number, p.name as place_name
+    FROM reservations r
+    LEFT JOIN days d ON r.day_id = d.id
+    LEFT JOIN places p ON r.place_id = p.id
+    WHERE r.id = ?
+  `).get(result.lastInsertRowid);
+
+  res.status(201).json({ reservation });
+});
+
+// PUT /api/trips/:tripId/reservations/:id
+router.put('/:id', authenticate, (req, res) => {
+  const { tripId, id } = req.params;
+  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, status, type } = req.body;
+
+  const trip = verifyTripOwnership(tripId, req.user.id);
+  if (!trip) return res.status(404).json({ error: 'Reise nicht gefunden' });
+
+  const reservation = db.prepare('SELECT * FROM reservations WHERE id = ? AND trip_id = ?').get(id, tripId);
+  if (!reservation) return res.status(404).json({ error: 'Reservierung nicht gefunden' });
+
+  db.prepare(`
+    UPDATE reservations SET
+      title = COALESCE(?, title),
+      reservation_time = ?,
+      location = ?,
+      confirmation_number = ?,
+      notes = ?,
+      day_id = ?,
+      place_id = ?,
+      status = COALESCE(?, status),
+      type = COALESCE(?, type)
+    WHERE id = ?
+  `).run(
+    title || null,
+    reservation_time !== undefined ? (reservation_time || null) : reservation.reservation_time,
+    location !== undefined ? (location || null) : reservation.location,
+    confirmation_number !== undefined ? (confirmation_number || null) : reservation.confirmation_number,
+    notes !== undefined ? (notes || null) : reservation.notes,
+    day_id !== undefined ? (day_id || null) : reservation.day_id,
+    place_id !== undefined ? (place_id || null) : reservation.place_id,
+    status || null,
+    type || null,
+    id
+  );
+
+  const updated = db.prepare(`
+    SELECT r.*, d.day_number, p.name as place_name
+    FROM reservations r
+    LEFT JOIN days d ON r.day_id = d.id
+    LEFT JOIN places p ON r.place_id = p.id
+    WHERE r.id = ?
+  `).get(id);
+
+  res.json({ reservation: updated });
+});
+
+// DELETE /api/trips/:tripId/reservations/:id
+router.delete('/:id', authenticate, (req, res) => {
+  const { tripId, id } = req.params;
+
+  const trip = verifyTripOwnership(tripId, req.user.id);
+  if (!trip) return res.status(404).json({ error: 'Reise nicht gefunden' });
+
+  const reservation = db.prepare('SELECT id FROM reservations WHERE id = ? AND trip_id = ?').get(id, tripId);
+  if (!reservation) return res.status(404).json({ error: 'Reservierung nicht gefunden' });
+
+  db.prepare('DELETE FROM reservations WHERE id = ?').run(id);
+  res.json({ success: true });
+});
+
+module.exports = router;

@@ -1,0 +1,455 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { X, Clock, MapPin, ExternalLink, Phone, Euro, Edit2, Trash2, Plus, Minus, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, FileText, Upload, File, FileImage, Star, Navigation } from 'lucide-react'
+import PlaceAvatar from '../shared/PlaceAvatar'
+import { mapsApi } from '../../api/client'
+import { useSettingsStore } from '../../store/settingsStore'
+import { getCategoryIcon } from '../shared/categoryIcons'
+import { useTranslation } from '../../i18n'
+
+const detailsCache = new Map()
+
+function useGoogleDetails(googlePlaceId, language) {
+  const [details, setDetails] = useState(null)
+  const cacheKey = `${googlePlaceId}_${language}`
+  useEffect(() => {
+    if (!googlePlaceId) { setDetails(null); return }
+    if (detailsCache.has(cacheKey)) { setDetails(detailsCache.get(cacheKey)); return }
+    mapsApi.details(googlePlaceId, language).then(data => {
+      detailsCache.set(cacheKey, data.place)
+      setDetails(data.place)
+    }).catch(() => {})
+  }, [googlePlaceId, language])
+  return details
+}
+
+function getWeekdayIndex(dateStr) {
+  // weekdayDescriptions[0] = Monday … [6] = Sunday
+  const d = dateStr ? new Date(dateStr + 'T12:00:00') : new Date()
+  const jsDay = d.getDay()
+  return jsDay === 0 ? 6 : jsDay - 1
+}
+
+function convertHoursLine(line, timeFormat) {
+  if (!line) return ''
+  const hasAmPm = /\d{1,2}:\d{2}\s*(AM|PM)/i.test(line)
+
+  if (timeFormat === '12h' && !hasAmPm) {
+    // 24h → 12h: "10:00" → "10:00 AM", "21:00" → "9:00 PM", "Uhr" entfernen
+    return line.replace(/\s*Uhr/g, '').replace(/(\d{1,2}):(\d{2})/g, (match, h, m) => {
+      const hour = parseInt(h)
+      if (isNaN(hour)) return match
+      const period = hour >= 12 ? 'PM' : 'AM'
+      const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+      return `${h12}:${m} ${period}`
+    })
+  }
+  if (timeFormat !== '12h' && hasAmPm) {
+    // 12h → 24h: "10:00 AM" → "10:00", "9:00 PM" → "21:00"
+    return line.replace(/(\d{1,2}):(\d{2})\s*(AM|PM)/gi, (_, h, m, p) => {
+      let hour = parseInt(h)
+      if (p.toUpperCase() === 'PM' && hour !== 12) hour += 12
+      if (p.toUpperCase() === 'AM' && hour === 12) hour = 0
+      return `${String(hour).padStart(2, '0')}:${m}`
+    })
+  }
+  return line
+}
+
+function formatTime(timeStr, locale, timeFormat) {
+  if (!timeStr) return ''
+  try {
+    const [h, m] = timeStr.split(':').map(Number)
+    if (timeFormat === '12h') {
+      const period = h >= 12 ? 'PM' : 'AM'
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+      return `${h12}:${String(m).padStart(2, '0')} ${period}`
+    }
+    const str = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    return locale?.startsWith('de') ? `${str} Uhr` : str
+  } catch { return timeStr }
+}
+
+function formatReservationDatetime(dt, locale, timeFormat) {
+  if (!dt) return null
+  try {
+    const d = new Date(dt)
+    if (isNaN(d)) return dt
+    const datePart = d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' })
+    const timePart = formatTime(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`, locale, timeFormat)
+    return `${datePart}, ${timePart}`
+  } catch { return dt }
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+export default function PlaceInspector({
+  place, categories, days, selectedDayId, assignments,
+  onClose, onEdit, onDelete, onAssignToDay, onRemoveAssignment,
+  files, onFileUpload,
+}) {
+  const { t, locale, language } = useTranslation()
+  const timeFormat = useSettingsStore(s => s.settings.time_format) || '24h'
+  const [hoursExpanded, setHoursExpanded] = useState(false)
+  const [filesExpanded, setFilesExpanded] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef(null)
+  const googleDetails = useGoogleDetails(place?.google_place_id, language)
+
+  if (!place) return null
+
+  const category = categories?.find(c => c.id === place.category_id)
+  const dayAssignments = selectedDayId ? (assignments[String(selectedDayId)] || []) : []
+  const assignmentInDay = selectedDayId ? dayAssignments.find(a => a.place?.id === place.id) : null
+
+  const openingHours = googleDetails?.opening_hours || null
+  const openNow = googleDetails?.open_now ?? null
+  const selectedDay = days?.find(d => d.id === selectedDayId)
+  const weekdayIndex = getWeekdayIndex(selectedDay?.date)
+
+  const placeFiles = (files || []).filter(f => String(f.place_id) === String(place.id))
+
+  const handleFileUpload = useCallback(async (e) => {
+    const selectedFiles = Array.from(e.target.files || [])
+    if (!selectedFiles.length || !onFileUpload) return
+    setIsUploading(true)
+    try {
+      for (const file of selectedFiles) {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('place_id', place.id)
+        await onFileUpload(fd)
+      }
+      setFilesExpanded(true)
+    } catch (err) {
+      console.error('Upload failed', err)
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [onFileUpload, place.id])
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 20,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'min(800px, calc(100vw - 32px))',
+        zIndex: 50,
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif",
+      }}
+    >
+      <div style={{
+        background: 'var(--bg-elevated)',
+        backdropFilter: 'blur(40px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+        borderRadius: 20,
+        boxShadow: '0 8px 40px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06)',
+        overflow: 'hidden',
+        maxHeight: '60vh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: openNow !== null ? 26 : 14, padding: openNow !== null ? '18px 16px 14px 28px' : '18px 16px 14px', borderBottom: '1px solid var(--border-faint)' }}>
+          {/* Avatar with open/closed ring + tag */}
+          <div style={{ position: 'relative', flexShrink: 0, marginBottom: openNow !== null ? 8 : 0 }}>
+            <div style={{
+              borderRadius: '50%', padding: 2.5,
+              background: openNow === true ? '#22c55e' : openNow === false ? '#ef4444' : 'transparent',
+            }}>
+              <PlaceAvatar place={place} category={category} size={52} />
+            </div>
+            {openNow !== null && (
+              <span style={{
+                position: 'absolute', bottom: -7, left: '50%', transform: 'translateX(-50%)',
+                fontSize: 9, fontWeight: 500, letterSpacing: '0.02em',
+                color: 'white',
+                background: openNow ? '#16a34a' : '#dc2626',
+                padding: '1.5px 7px', borderRadius: 99,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              }}>
+                {openNow ? t('inspector.opened') : t('inspector.closed')}
+              </span>
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)', lineHeight: '1.3' }}>{place.name}</span>
+              {category && (() => {
+                const CatIcon = getCategoryIcon(category.icon)
+                return (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 11, fontWeight: 500,
+                    color: category.color || '#6b7280',
+                    background: category.color ? `${category.color}18` : 'rgba(0,0,0,0.06)',
+                    border: `1px solid ${category.color ? `${category.color}30` : 'transparent'}`,
+                    padding: '2px 8px', borderRadius: 99,
+                  }}>
+                    <CatIcon size={10} />
+                    {category.name}
+                  </span>
+                )
+              })()}
+            </div>
+            {place.address && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 6 }}>
+                <MapPin size={11} color="var(--text-faint)" style={{ flexShrink: 0, marginTop: 2 }} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '1.4' }}>{place.address}</span>
+              </div>
+            )}
+            {place.place_time && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                <Clock size={10} color="var(--text-faint)" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatTime(place.place_time, locale, timeFormat)}</span>
+              </div>
+            )}
+            {place.lat && place.lng && (
+              <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+                {Number(place.lat).toFixed(6)}, {Number(place.lng).toFixed(6)}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--bg-hover)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, alignSelf: 'flex-start', transition: 'background 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+          >
+            <X size={14} strokeWidth={2} color="var(--text-secondary)" />
+          </button>
+        </div>
+
+        {/* Content — scrollable */}
+        <div style={{ overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+          {/* Info-Chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {googleDetails?.rating && (() => {
+              const shortReview = (googleDetails.reviews || []).find(r => r.text && r.text.length > 5)
+              return (
+                <Chip
+                  icon={<Star size={12} fill="#facc15" color="#facc15" />}
+                  text={<>
+                    {googleDetails.rating.toFixed(1)}
+                    {googleDetails.rating_count ? <span style={{ opacity: 0.5 }}> ({googleDetails.rating_count.toLocaleString('de-DE')})</span> : ''}
+                    {shortReview && <span className="hidden md:inline" style={{ opacity: 0.6, fontWeight: 400, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}> · „{shortReview.text}"</span>}
+                  </>}
+                  color="var(--text-secondary)" bg="var(--bg-hover)"
+                />
+              )
+            })()}
+            {place.price > 0 && (
+              <Chip icon={<Euro size={12} />} text={`${place.price} ${place.currency || '€'}`} color="#059669" bg="#ecfdf5" />
+            )}
+          </div>
+
+          {/* Telefon */}
+          {place.phone && (
+            <div style={{ display: 'flex', gap: 12 }}>
+              <a href={`tel:${place.phone}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-primary)', textDecoration: 'none' }}>
+                <Phone size={12} /> {place.phone}
+              </a>
+            </div>
+          )}
+
+          {/* Description + Reservation in one box */}
+          {(place.description || place.notes || (place.reservation_status && place.reservation_status !== 'none')) && (
+            <div style={{ background: 'var(--bg-hover)', borderRadius: 10, overflow: 'hidden' }}>
+              {(place.description || place.notes) && (
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, lineHeight: '1.5', padding: '8px 12px',
+                  borderBottom: (place.reservation_status && place.reservation_status !== 'none') ? '1px solid var(--border-faint)' : 'none'
+                }}>
+                  {place.description || place.notes}
+                </p>
+              )}
+              {place.reservation_status && place.reservation_status !== 'none' && (
+                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    {place.reservation_status === 'confirmed'
+                      ? <CheckCircle2 size={12} color="#059669" />
+                      : <AlertCircle size={12} color="#d97706" />
+                    }
+                    <span style={{ fontSize: 12, fontWeight: 600, color: place.reservation_status === 'confirmed' ? '#059669' : '#d97706' }}>
+                      {place.reservation_status === 'confirmed' ? t('inspector.confirmedRes') : t('inspector.pendingRes')}
+                    </span>
+                    {(place.reservation_datetime || place.place_time) && (
+                      <>
+                        <span style={{ fontSize: 11, color: '#d1d5db' }}>·</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          {place.reservation_datetime
+                            ? formatReservationDatetime(place.reservation_datetime, locale, timeFormat)
+                            : formatTime(place.place_time, locale, timeFormat)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {place.reservation_notes && (
+                    <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: 0, lineHeight: '1.5', paddingLeft: 17 }}>{place.reservation_notes}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Opening hours */}
+          {openingHours && openingHours.length > 0 && (
+            <div style={{ background: 'var(--bg-hover)', borderRadius: 10, overflow: 'hidden' }}>
+              <button
+                onClick={() => setHoursExpanded(h => !h)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Clock size={13} color="#9ca3af" />
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                    {hoursExpanded ? t('inspector.openingHours') : (convertHoursLine(openingHours[weekdayIndex] || '', timeFormat) || t('inspector.showHours'))}
+                  </span>
+                </div>
+                {hoursExpanded ? <ChevronUp size={13} color="#9ca3af" /> : <ChevronDown size={13} color="#9ca3af" />}
+              </button>
+              {hoursExpanded && (
+                <div style={{ padding: '0 12px 10px' }}>
+                  {openingHours.map((line, i) => (
+                    <div key={i} style={{
+                      fontSize: 12, color: i === weekdayIndex ? 'var(--text-primary)' : 'var(--text-muted)',
+                      fontWeight: i === weekdayIndex ? 600 : 400,
+                      padding: '2px 0',
+                    }}>{convertHoursLine(line, timeFormat)}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+
+          {/* Files section */}
+          {(placeFiles.length > 0 || onFileUpload) && (
+            <div style={{ background: 'var(--bg-hover)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 6 }}>
+                <button
+                  onClick={() => setFilesExpanded(f => !f)}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit', textAlign: 'left' }}
+                >
+                  <FileText size={13} color="#9ca3af" />
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                    {placeFiles.length > 0 ? t('inspector.filesCount', { count: placeFiles.length }) : t('inspector.files')}
+                  </span>
+                  {filesExpanded ? <ChevronUp size={12} color="#9ca3af" /> : <ChevronDown size={12} color="#9ca3af" />}
+                </button>
+                {onFileUpload && (
+                  <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 6, background: 'var(--bg-tertiary)' }}>
+                    <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={handleFileUpload} />
+                    {isUploading ? (
+                      <span style={{ fontSize: 11 }}>…</span>
+                    ) : (
+                      <><Upload size={11} strokeWidth={2} /> {t('common.upload')}</>
+                    )}
+                  </label>
+                )}
+              </div>
+              {filesExpanded && placeFiles.length > 0 && (
+                <div style={{ padding: '0 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {placeFiles.map(f => (
+                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {(f.mime_type || '').startsWith('image/') ? <FileImage size={12} color="#6b7280" /> : <File size={12} color="#6b7280" />}
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.original_name}</span>
+                      {f.file_size && <span style={{ fontSize: 11, color: 'var(--text-faint)', flexShrink: 0 }}>{formatFileSize(f.file_size)}</span>}
+                      <a
+                        href={`/uploads/files/${f.filename}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ flexShrink: 0, color: 'var(--text-faint)', display: 'flex' }}
+                      >
+                        <ExternalLink size={11} />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-faint)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {selectedDayId && (
+            assignmentInDay ? (
+              <ActionButton onClick={() => onRemoveAssignment(selectedDayId, assignmentInDay.id)} variant="ghost" icon={<Minus size={13} />}
+                label={<><span className="hidden sm:inline">{t('inspector.removeFromDay')}</span><span className="sm:hidden">Remove</span></>} />
+            ) : (
+              <ActionButton onClick={() => onAssignToDay(place.id)} variant="primary" icon={<Plus size={13} />} label={t('inspector.addToDay')} />
+            )
+          )}
+          {googleDetails?.google_maps_url && (
+            <ActionButton onClick={() => window.open(googleDetails.google_maps_url, '_blank')} variant="ghost" icon={<Navigation size={13} />}
+              label={<span className="hidden sm:inline">{t('inspector.google')}</span>} />
+          )}
+          {place.website && (
+            <ActionButton onClick={() => window.open(place.website, '_blank')} variant="ghost" icon={<ExternalLink size={13} />}
+              label={<span className="hidden sm:inline">{t('inspector.website')}</span>} />
+          )}
+          <div style={{ flex: 1 }} />
+          <ActionButton onClick={onEdit} variant="ghost" icon={<Edit2 size={13} />} label={<span className="hidden sm:inline">{t('common.edit')}</span>} />
+          <ActionButton onClick={onDelete} variant="danger" icon={<Trash2 size={13} />} label={<span className="hidden sm:inline">{t('common.delete')}</span>} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Chip({ icon, text, color = 'var(--text-secondary)', bg = 'var(--bg-hover)' }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 99, background: bg, color, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+      <span style={{ flexShrink: 0, display: 'flex' }}>{icon}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+    </div>
+  )
+}
+
+function Row({ icon, children }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flexShrink: 0 }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    </div>
+  )
+}
+
+function ActionButton({ onClick, variant, icon, label }) {
+  const base = {
+    primary: { background: 'var(--accent)', color: 'var(--accent-text)', border: 'none', hoverBg: 'var(--text-secondary)' },
+    ghost: { background: 'var(--bg-hover)', color: 'var(--text-secondary)', border: 'none', hoverBg: 'var(--bg-tertiary)' },
+    danger: { background: 'rgba(239,68,68,0.08)', color: '#dc2626', border: 'none', hoverBg: 'rgba(239,68,68,0.16)' },
+  }
+  const s = base[variant] || base.ghost
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        padding: '6px 12px', borderRadius: 10, minHeight: 30,
+        fontSize: 12, fontWeight: 500, cursor: 'pointer',
+        fontFamily: 'inherit', transition: 'background 0.15s, opacity 0.15s',
+        background: s.background, color: s.color, border: s.border,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = s.hoverBg}
+      onMouseLeave={e => e.currentTarget.style.background = s.background}
+    >
+      {icon}{label}
+    </button>
+  )
+}
